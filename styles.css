@@ -1,0 +1,298 @@
+/* Annotate Plugin Styles */
+
+.annotate-container {
+	display: flex;
+	flex-direction: column;
+	margin: 1em 0;
+	padding: 8px;
+	background-color: var(--background-secondary);
+	border-radius: 6px;
+	border: 1px solid var(--background-modifier-border);
+	max-width: none !important;
+	width: 100%;
+}
+
+.annotate-toolbar {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	padding: 8px;
+	background-color: var(--background-primary);
+	border-radius: 4px;
+	margin-bottom: 8px;
+	align-items: center;
+}
+
+.annotate-btn {
+	padding: 4px 12px;
+	background-color: var(--interactive-normal);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	cursor: pointer;
+	font-size: 12px;
+	transition: all 0.2s ease;
+}
+
+.annotate-btn:hover {
+	background-color: var(--interactive-hover);
+}
+
+.annotate-btn.active {
+	background-color: var(--interactive-accent);
+	color: var(--text-on-accent);
+	border-color: var(--interactive-accent);
+}
+
+.annotate-ocr-btn {
+	background-color: var(--color-green);
+	color: white;
+	border-color: var(--color-green);
+}
+
+.annotate-ocr-btn:hover {
+	opacity: 0.9;
+}
+
+.annotate-separator {
+	color: var(--text-muted);
+	margin: 0 4px;
+	font-size: 14px;
+}
+
+.annotate-label {
+	font-size: 12px;
+	color: var(--text-muted);
+	margin-right: 4px;
+}
+
+.annotate-select {
+	padding: 3px 6px;
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	font-size: 12px;
+	cursor: pointer;
+}
+
+.annotate-select:hover {
+	background-color: var(--interactive-hover);
+}
+
+.annotate-color-input {
+	width: 32px;
+	height: 24px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	cursor: pointer;
+}
+
+.annotate-size-input {
+	width: 80px;
+}
+
+.annotate-size-value {
+	font-size: 12px;
+	color: var(--text-normal);
+	min-width: 24px;
+	text-align: center;
+	font-weight: 500;
+}
+
+.annotate-dimension-input {
+	width: 70px;
+	padding: 3px 6px;
+	background-color: var(--background-primary);
+	color: var(--text-normal);
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 3px;
+	font-size: 12px;
+	text-align: center;
+}
+
+.annotate-dimension-input:focus {
+	outline: none;
+	border-color: var(--interactive-accent);
+}
+
+.annotate-canvas-wrapper {
+	background-color: var(--background-primary);
+	border-radius: 4px;
+	padding: 12px;
+	overflow-x: auto;
+	overflow-y: auto;
+	max-width: 100%;
+	width: 100%;
+}
+
+.annotate-canvas-container {
+	position: relative;
+	display: inline-block;
+	min-width: 400px;
+	min-height: 300px;
+	border: 2px dashed transparent;
+	transition: border-color 0.2s ease;
+}
+
+.annotate-canvas-container:hover {
+	border-color: var(--background-modifier-border);
+}
+
+/* Resize handles */
+.resize-handle {
+	position: absolute;
+	background-color: var(--interactive-accent);
+	opacity: 0.6;
+	transition: none;
+	z-index: 10;
+	pointer-events: auto;
+}
+
+.resize-handle:hover {
+	opacity: 1 !important;
+}
+
+/* Corner handles */
+.resize-handle.nw {
+	width: 12px;
+	height: 12px;
+	cursor: nwse-resize;
+	border-radius: 2px 0 0 0;
+}
+
+.resize-handle.ne {
+	width: 12px;
+	height: 12px;
+	cursor: nesw-resize;
+	border-radius: 0 2px 0 0;
+}
+
+.resize-handle.sw {
+	width: 12px;
+	height: 12px;
+	cursor: nesw-resize;
+	border-radius: 0 0 0 2px;
+}
+
+.resize-handle.se {
+	width: 12px;
+	height: 12px;
+	cursor: nwse-resize;
+	border-radius: 0 0 2px 0;
+}
+
+/* Side handles */
+.resize-handle.n {
+	width: 40px;
+	height: 8px;
+	cursor: ns-resize;
+	border-radius: 2px 2px 0 0;
+	left: 50%;
+	transform: translateX(-50%);
+}
+
+.resize-handle.s {
+	width: 40px;
+	height: 8px;
+	cursor: ns-resize;
+	border-radius: 0 0 2px 2px;
+	left: 50%;
+	transform: translateX(-50%);
+}
+
+.resize-handle.w {
+	width: 8px;
+	height: 40px;
+	cursor: ew-resize;
+	border-radius: 2px 0 0 2px;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+.resize-handle.e {
+	width: 8px;
+	height: 40px;
+	cursor: ew-resize;
+	border-radius: 0 2px 2px 0;
+	top: 50%;
+	transform: translateY(-50%);
+}
+
+/* Lines canvas - background layer (in flow to give container size) */
+.annotate-lines-canvas {
+	position: relative;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	z-index: 1;
+	display: block;
+}
+
+/* Content canvas - foreground layer (absolute on top) */
+.annotate-content-canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+	cursor: crosshair;
+	z-index: 2;
+	background-color: transparent;
+	pointer-events: auto;
+}
+
+.annotate-content-canvas[data-mode="pan"] {
+	cursor: grab;
+}
+
+.annotate-content-canvas[data-mode="pan"]:active {
+	cursor: grabbing;
+}
+
+.annotate-content-canvas[data-mode="erase"] {
+	cursor: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20"><circle cx="10" cy="10" r="8" fill="rgba(255,0,0,0.3)" stroke="red" stroke-width="1"/></svg>') 10 10, auto;
+}
+
+/* Dark mode button */
+.annotate-dark-mode-btn {
+	min-width: 50px;
+	transition: all 0.2s ease;
+}
+
+/* Auto pen color control */
+.annotate-auto-pen-color {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	padding: 4px 8px;
+	background-color: var(--background-primary);
+	border-radius: 3px;
+}
+
+.annotate-checkbox {
+	cursor: pointer;
+}
+
+.annotate-auto-pen-color .annotate-label {
+	cursor: pointer;
+	user-select: none;
+}
+
+/* Dark mode adjustments */
+.theme-dark .annotate-canvas-wrapper {
+	background-color: var(--background-secondary);
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+	.annotate-toolbar {
+		flex-direction: column;
+		align-items: stretch;
+	}
+
+	.annotate-btn {
+		width: 100%;
+	}
+}

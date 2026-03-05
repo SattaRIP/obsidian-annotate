@@ -1,0 +1,13 @@
+# Plugin user data (don't commit)
+data.json
+
+# Node modules (if added later)
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
