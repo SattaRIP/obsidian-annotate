@@ -154,14 +154,13 @@ class AnnotatePlugin extends Plugin {
 
 	async ocrCurrentFile() {
 		try {
-			// Get current file
-			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-			if (!activeView || !activeView.file) {
+			// Get current file (works for PDFs, images, and markdown files)
+			const currentFile = this.app.workspace.getActiveFile();
+			if (!currentFile) {
 				new Notice('No file is currently open');
 				return;
 			}
 
-			const currentFile = activeView.file;
 			const extension = currentFile.extension.toLowerCase();
 
 			// Check if it's a supported file type
@@ -239,10 +238,18 @@ class AnnotatePlugin extends Plugin {
 
 			// Show results in modal
 			new ExtractedTextModal(this.app, allText.trim(), (finalText) => {
-				const editor = activeView.editor;
-				const cursor = editor.getCursor();
-				editor.replaceRange('\n' + finalText + '\n', cursor);
-				new Notice('OCR text inserted');
+				// Try to get active markdown editor to insert text
+				const activeMarkdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
+				if (activeMarkdownView && activeMarkdownView.editor) {
+					const editor = activeMarkdownView.editor;
+					const cursor = editor.getCursor();
+					editor.replaceRange('\n' + finalText + '\n', cursor);
+					new Notice('OCR text inserted');
+				} else {
+					// If no markdown editor is open, just copy to clipboard
+					navigator.clipboard.writeText(finalText);
+					new Notice('OCR text copied to clipboard (no markdown editor open)');
+				}
 			}).open();
 
 		} catch (error) {
