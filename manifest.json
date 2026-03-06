@@ -4,7 +4,7 @@
 	"version": "1.0.0",
 	"minAppVersion": "0.15.0",
 	"description": "Handwrite and annotate directly in your notes with realistic pens and advanced OCR. Supports MyScript and Google Cloud Vision for 98% accuracy handwriting recognition. Features: inline handwriting between paragraphs, realistic pen types (calligraphy, fountain, pencil), dual OCR providers, smooth canvas drawing, pan/zoom, undo/redo.",
-	"author": "TsalMaveth",
-	"authorUrl": "https://github.com/TsalMaveth",
+	"author": "Mythra PS",
+	"authorUrl": "https://github.com/SattaRIP",
 	"isDesktopOnly": true
 }
