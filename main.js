@@ -1,5 +1,9 @@
-const { Plugin, PluginSettingTab, Setting, Notice, Menu, MarkdownRenderChild, Modal } = require('obsidian');
+const { Plugin, PluginSettingTab, Setting, Notice, Menu, MarkdownRenderChild, Modal, MarkdownView } = require('obsidian');
 const path = require('path');
+const fs = require('fs').promises;
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 
 // Default settings
 const DEFAULT_SETTINGS = {
@@ -58,6 +62,16 @@ class AnnotatePlugin extends Plugin {
 			icon: 'pen-tool',
 			editorCallback: (editor, view) => {
 				this.insertNewAnnotation(editor, view);
+			}
+		});
+
+		// Register command: OCR current file
+		this.addCommand({
+			id: 'ocr-current-file',
+			name: 'OCR current file (image/PDF)',
+			icon: 'scan',
+			callback: async () => {
+				await this.ocrCurrentFile();
 			}
 		});
 
@@ -135,6 +149,178 @@ class AnnotatePlugin extends Plugin {
 
 		if (!folder) {
 			await this.app.vault.createFolder(folderPath);
+		}
+	}
+
+	async ocrCurrentFile() {
+		try {
+			// Get current file
+			const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+			if (!activeView || !activeView.file) {
+				new Notice('No file is currently open');
+				return;
+			}
+
+			const currentFile = activeView.file;
+			const extension = currentFile.extension.toLowerCase();
+
+			// Check if it's a supported file type
+			if (!['pdf', 'png', 'jpg', 'jpeg', 'gif', 'bmp'].includes(extension)) {
+				new Notice('Current file must be a PDF or image file');
+				return;
+			}
+
+			// Check OCR configuration
+			const provider = this.settings.ocrProvider || 'myscript';
+			if (provider === 'myscript') {
+				if (!this.settings.myScriptAppKey || !this.settings.myScriptHmacKey) {
+					new Notice('MyScript API keys not configured. Go to Settings > Annotate.');
+					return;
+				}
+			} else if (provider === 'google') {
+				if (!this.settings.googleCloudApiKey) {
+					new Notice('Google Cloud API key not configured. Go to Settings > Annotate.');
+					return;
+				}
+			}
+
+			new Notice(`OCRing ${currentFile.name}...`);
+
+			// Get full file path
+			const filePath = this.app.vault.adapter.getFullPath(currentFile.path);
+
+			let imagePaths = [];
+
+			// If PDF, convert to images first
+			if (extension === 'pdf') {
+				const tempDir = require('os').tmpdir();
+				const tempPrefix = path.join(tempDir, `ocr-${Date.now()}`);
+
+				// Convert PDF to PNG images
+				await execAsync(`pdftoppm -png "${filePath}" "${tempPrefix}"`);
+
+				// Find generated images
+				const files = await fs.readdir(tempDir);
+				imagePaths = files
+					.filter(f => f.startsWith(path.basename(tempPrefix)) && f.endsWith('.png'))
+					.map(f => path.join(tempDir, f))
+					.sort();
+
+				if (imagePaths.length === 0) {
+					new Notice('Failed to convert PDF to images');
+					return;
+				}
+			} else {
+				// Single image file
+				imagePaths = [filePath];
+			}
+
+			// OCR all images
+			let allText = '';
+			for (let i = 0; i < imagePaths.length; i++) {
+				const imgPath = imagePaths[i];
+				new Notice(`Processing page ${i + 1} of ${imagePaths.length}...`);
+
+				let pageText = '';
+				if (provider === 'myscript') {
+					// MyScript doesn't support image input directly, need Google Cloud Vision
+					pageText = await this.ocrImageWithGoogle(imgPath);
+				} else {
+					pageText = await this.ocrImageWithGoogle(imgPath);
+				}
+
+				if (pageText) {
+					if (imagePaths.length > 1) {
+						allText += `\n## Page ${i + 1}\n\n${pageText}\n`;
+					} else {
+						allText += pageText;
+					}
+				}
+			}
+
+			// Clean up temp files for PDFs
+			if (extension === 'pdf') {
+				for (const imgPath of imagePaths) {
+					await fs.unlink(imgPath).catch(() => {});
+				}
+			}
+
+			if (!allText.trim()) {
+				new Notice('No text could be extracted');
+				return;
+			}
+
+			// Show results in modal
+			new ExtractedTextModal(this.app, allText.trim(), (finalText) => {
+				const editor = activeView.editor;
+				const cursor = editor.getCursor();
+				editor.replaceRange('\n' + finalText + '\n', cursor);
+				new Notice('OCR text inserted');
+			}).open();
+
+		} catch (error) {
+			console.error('OCR Current File Error:', error);
+			new Notice(`OCR failed: ${error.message}`);
+		}
+	}
+
+	async ocrImageWithGoogle(imagePath) {
+		const settings = this.settings;
+
+		try {
+			// Read image and convert to base64
+			const imageBuffer = await fs.readFile(imagePath);
+			const imageBase64 = imageBuffer.toString('base64');
+
+			// Call Google Cloud Vision API
+			const apiKey = settings.googleCloudApiKey;
+			const url = `https://vision.googleapis.com/v1/images:annotate?key=${apiKey}`;
+
+			const requestBody = {
+				requests: [{
+					image: {
+						content: imageBase64
+					},
+					features: [{
+						type: 'DOCUMENT_TEXT_DETECTION',
+						maxResults: 1
+					}]
+				}]
+			};
+
+			const response = await fetch(url, {
+				method: 'POST',
+				headers: {
+					'Content-Type': 'application/json'
+				},
+				body: JSON.stringify(requestBody)
+			});
+
+			if (!response.ok) {
+				const errorText = await response.text();
+				throw new Error(`Google Cloud API error: ${response.status} - ${errorText}`);
+			}
+
+			// Increment usage counter
+			settings.googleCloudUsageCount++;
+			await this.saveSettings();
+
+			const result = await response.json();
+
+			// Extract text from response
+			let extractedText = '';
+			if (result.responses && result.responses[0]) {
+				const textAnnotations = result.responses[0].textAnnotations;
+				if (textAnnotations && textAnnotations.length > 0) {
+					extractedText = textAnnotations[0].description;
+				}
+			}
+
+			return extractedText;
+
+		} catch (error) {
+			console.error('Google Cloud Vision Error:', error);
+			throw error;
 		}
 	}
 
