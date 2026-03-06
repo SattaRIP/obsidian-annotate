@@ -6,7 +6,7 @@ Handwrite and annotate directly in your markdown notes with realistic pens and a
 
 - **Inline Handwriting**: Embed handwriting sections between paragraphs in regular notes
 - **Realistic Pens**: Fountain pen, calligraphy nib (flat-edge with pressure), marker, and pencil
-- **Stroke Smoothing**: Adjustable stabilization (0-10) for shaky hands
+- **Stroke Smoothing**: Adjustable stabilization
 - **Dual OCR Providers**:
   - MyScript (2000 free/month, 98% accuracy - same engine as Kobo eReader)
   - Google Cloud Vision (1000 free/month)
