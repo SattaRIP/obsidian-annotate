@@ -170,18 +170,10 @@ class AnnotatePlugin extends Plugin {
 				return;
 			}
 
-			// Check OCR configuration
-			const provider = this.settings.ocrProvider || 'myscript';
-			if (provider === 'myscript') {
-				if (!this.settings.myScriptAppKey || !this.settings.myScriptHmacKey) {
-					new Notice('MyScript API keys not configured. Go to Settings > Annotate.');
-					return;
-				}
-			} else if (provider === 'google') {
-				if (!this.settings.googleCloudApiKey) {
-					new Notice('Google Cloud API key not configured. Go to Settings > Annotate.');
-					return;
-				}
+			// Image/PDF OCR requires Google Cloud Vision (MyScript only works with strokes)
+			if (!this.settings.googleCloudApiKey) {
+				new Notice('Google Cloud API key required for image/PDF OCR. Configure it in Settings > Annotate.');
+				return;
 			}
 
 			new Notice(`OCRing ${currentFile.name}...`);
@@ -221,13 +213,8 @@ class AnnotatePlugin extends Plugin {
 				const imgPath = imagePaths[i];
 				new Notice(`Processing page ${i + 1} of ${imagePaths.length}...`);
 
-				let pageText = '';
-				if (provider === 'myscript') {
-					// MyScript doesn't support image input directly, need Google Cloud Vision
-					pageText = await this.ocrImageWithGoogle(imgPath);
-				} else {
-					pageText = await this.ocrImageWithGoogle(imgPath);
-				}
+				// Always use Google Cloud Vision for image/PDF OCR
+				const pageText = await this.ocrImageWithGoogle(imgPath);
 
 				if (pageText) {
 					if (imagePaths.length > 1) {
