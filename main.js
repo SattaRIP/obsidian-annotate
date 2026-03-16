@@ -377,6 +377,9 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 
 		// Clipboard for copy/paste
 		this.clipboard = [];
+
+		// Render throttling flag for performance
+		this.renderScheduled = false;
 	}
 
 	detectDarkMode() {
@@ -418,8 +421,8 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 			darkModeBtn.style.borderColor = isDark ? '#444444' : '#cccccc';
 		}
 
-		// Re-render canvas with new background
-		this.render();
+		// Re-render background with new theme colors
+		this.renderBackground();
 		this.drawRuledLines();
 	}
 
@@ -475,17 +478,37 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		canvasContainer.style.width = `${initialWidth}px`;
 		canvasContainer.style.height = `${initialHeight}px`;
 
-		// Create lines canvas (background layer for ruled lines)
+		// Create lines canvas (bottom layer for ruled lines)
 		this.linesCanvas = canvasContainer.createEl('canvas', { cls: 'annotate-lines-canvas' });
 		this.linesCanvas.width = initialWidth;
 		this.linesCanvas.height = initialHeight;
+		this.linesCanvas.style.position = 'absolute';
+		this.linesCanvas.style.zIndex = '1';
+		this.linesCanvas.style.pointerEvents = 'none';
 		this.linesCtx = this.linesCanvas.getContext('2d');
 
-		// Create content canvas (foreground layer for drawing)
-		this.canvas = canvasContainer.createEl('canvas', { cls: 'annotate-content-canvas' });
-		this.canvas.width = this.embedData.width || this.plugin.settings.defaultCanvasWidth;
-		this.canvas.height = this.embedData.height || this.plugin.settings.defaultCanvasHeight;
-		this.ctx2d = this.canvas.getContext('2d');
+		// Create background canvas (middle layer for completed strokes)
+		this.backgroundCanvas = canvasContainer.createEl('canvas', { cls: 'annotate-background-canvas' });
+		this.backgroundCanvas.width = initialWidth;
+		this.backgroundCanvas.height = initialHeight;
+		this.backgroundCanvas.style.position = 'absolute';
+		this.backgroundCanvas.style.zIndex = '2';
+		this.backgroundCanvas.style.pointerEvents = 'none';
+		this.backgroundCtx = this.backgroundCanvas.getContext('2d');
+
+		// Create foreground canvas (top layer for current stroke being drawn)
+		this.foregroundCanvas = canvasContainer.createEl('canvas', { cls: 'annotate-foreground-canvas' });
+		this.foregroundCanvas.width = initialWidth;
+		this.foregroundCanvas.height = initialHeight;
+		this.foregroundCanvas.style.position = 'absolute';
+		this.foregroundCanvas.style.zIndex = '3';
+		this.foregroundCanvas.style.pointerEvents = 'auto'; // Only foreground receives pointer events
+		this.foregroundCanvas.style.cursor = 'crosshair'; // Drawing cursor for mouse and stylus
+		this.foregroundCtx = this.foregroundCanvas.getContext('2d');
+
+		// Maintain backward compatibility
+		this.canvas = this.foregroundCanvas;
+		this.ctx2d = this.foregroundCtx;
 
 		// Set up event listeners
 		this.setupCanvasEvents();
@@ -728,11 +751,17 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 	}
 
 	resizeCanvas(newWidth, newHeight, showNotice = false) {
-		// Update both canvases
-		this.canvas.width = newWidth;
-		this.canvas.height = newHeight;
+		// Update ALL three canvases
+		this.foregroundCanvas.width = newWidth;
+		this.foregroundCanvas.height = newHeight;
+		this.backgroundCanvas.width = newWidth;
+		this.backgroundCanvas.height = newHeight;
 		this.linesCanvas.width = newWidth;
 		this.linesCanvas.height = newHeight;
+
+		// Maintain backward compatibility
+		this.canvas.width = newWidth;
+		this.canvas.height = newHeight;
 
 		// Update embed data
 		this.embedData.width = newWidth;
@@ -747,7 +776,7 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		}
 
 		// Re-render everything
-		this.render();
+		this.renderBackground();
 		this.drawRuledLines();
 
 		// Save updated dimensions
@@ -824,7 +853,9 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 				this.offsetY += dy;
 				lastX = screenX;
 				lastY = screenY;
-				this.render();
+				// Re-render BOTH layers with updated transform
+				this.renderBackground();
+				this.renderForeground();
 				return;
 			}
 
@@ -842,7 +873,9 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 				this.offsetY += dy;
 				lastX = screenX;
 				lastY = screenY;
-				this.render();
+				// Re-render BOTH layers with updated transform
+				this.renderBackground();
+				this.renderForeground();
 			}
 		});
 
@@ -1052,7 +1085,7 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		const count = this.strokes.length;
 		this.strokes = [];
 		this.addToHistory();
-		this.render();
+		this.renderBackground(); // Clear background canvas
 		this.saveData();
 		new Notice(`Cut ${count} stroke(s)`);
 	}
@@ -1065,7 +1098,7 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		// Paste strokes from clipboard
 		this.strokes.push(...JSON.parse(JSON.stringify(this.clipboard)));
 		this.addToHistory();
-		this.render();
+		this.renderBackground(); // Render pasted strokes to background
 		this.saveData();
 		new Notice(`Pasted ${this.clipboard.length} stroke(s)`);
 	}
@@ -1077,6 +1110,19 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 			x: (screenX - this.offsetX) / this.scale,
 			y: (screenY - this.offsetY) / this.scale
 		};
+	}
+
+	calculateStrokeLength(stroke) {
+		// Calculate total stroke length for calligraphy rendering optimization
+		let totalLength = 0;
+		for (let i = 1; i < stroke.points.length; i++) {
+			const [x, y] = stroke.points[i];
+			const [prevX, prevY] = stroke.points[i - 1];
+			const dx = x - prevX;
+			const dy = y - prevY;
+			totalLength += Math.sqrt(dx * dx + dy * dy);
+		}
+		return totalLength;
 	}
 
 	startStroke(x, y, pressure = 0.5, twist = 0) {
@@ -1143,14 +1189,35 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		}
 
 		this.currentStroke.points.push([x, y, pressure, twist]);
-		this.render();
+
+		// Throttle render with requestAnimationFrame for better performance
+		// Only redraw foreground (current stroke) - background stays cached
+		if (!this.renderScheduled) {
+			this.renderScheduled = true;
+			requestAnimationFrame(() => {
+				this.renderForeground();
+				this.renderScheduled = false;
+			});
+		}
 	}
 
 	endStroke() {
 		if (!this.currentStroke) return;
 
+		// Cache total length for calligraphy rendering optimization
+		if (this.currentStroke.penType === 'calligraphy') {
+			this.currentStroke.totalLength = this.calculateStrokeLength(this.currentStroke);
+		}
+
 		this.strokes.push(this.currentStroke);
 		this.saveState();
+
+		// Render the completed stroke to background canvas
+		this.renderBackground();
+
+		// Clear foreground canvas (currentStroke about to be null)
+		this.foregroundCtx.clearRect(0, 0, this.foregroundCanvas.width, this.foregroundCanvas.height);
+
 		this.currentStroke = null;
 		this.drawing = false;
 		this.saveData();
@@ -1166,19 +1233,20 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 			});
 		});
 		this.saveState();
-		this.render();
+		this.renderBackground(); // Re-render background after erasing strokes
 		this.saveData();
 	}
 
 	clearCanvas() {
 		if (this.strokes.length === 0) return;
 
-		if (confirm('Clear all strokes?')) {
+		// Use proper Modal class to ensure it appears on top
+		new ConfirmModal(this.plugin.app, 'Clear Canvas', 'Clear all strokes?', () => {
 			this.strokes = [];
 			this.saveState();
-			this.render();
+			this.renderBackground(); // Clear background canvas
 			this.saveData();
-		}
+		}).open();
 	}
 
 	saveState() {
@@ -1202,7 +1270,8 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		if (this.historyIndex > 0) {
 			this.historyIndex--;
 			this.strokes = JSON.parse(JSON.stringify(this.history[this.historyIndex]));
-			this.render();
+			this.renderBackground(); // Re-render background with previous state
+			this.foregroundCtx.clearRect(0, 0, this.foregroundCanvas.width, this.foregroundCanvas.height); // Clear foreground
 			this.saveData();
 		}
 	}
@@ -1211,35 +1280,63 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		if (this.historyIndex < this.history.length - 1) {
 			this.historyIndex++;
 			this.strokes = JSON.parse(JSON.stringify(this.history[this.historyIndex]));
-			this.render();
+			this.renderBackground(); // Re-render background with next state
+			this.foregroundCtx.clearRect(0, 0, this.foregroundCanvas.width, this.foregroundCanvas.height); // Clear foreground
 			this.saveData();
 		}
 	}
 
-	render() {
-		if (!this.ctx2d || !this.canvasData) return;
+	renderBackground() {
+		// Draw ALL completed strokes to background canvas
+		// Called when strokes are added/removed/modified
+		if (!this.backgroundCtx || !this.canvasData) return;
 
-		const ctx = this.ctx2d;
+		const ctx = this.backgroundCtx;
 
 		// Clear canvas (make it transparent so lines canvas shows through)
-		ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+		ctx.clearRect(0, 0, this.backgroundCanvas.width, this.backgroundCanvas.height);
 
-		// Apply transform
+		// CRITICAL: Apply SAME transforms as foreground
 		ctx.save();
 		ctx.translate(this.offsetX, this.offsetY);
 		ctx.scale(this.scale, this.scale);
 
-		// Draw all strokes
+		// Draw all completed strokes
 		this.strokes.forEach(stroke => {
 			this.drawStroke(ctx, stroke);
 		});
 
-		// Draw current stroke
-		if (this.currentStroke) {
-			this.drawStroke(ctx, this.currentStroke);
-		}
+		ctx.restore();
+	}
+
+	renderForeground() {
+		// Draw ONLY current stroke to foreground canvas
+		// Called on every pointermove during active drawing (via requestAnimationFrame)
+		if (!this.foregroundCtx || !this.canvasData) return;
+
+		const ctx = this.foregroundCtx;
+
+		// Clear canvas (make it transparent so background shows through)
+		ctx.clearRect(0, 0, this.foregroundCanvas.width, this.foregroundCanvas.height);
+
+		if (!this.currentStroke) return;
+
+		// CRITICAL: Apply SAME transforms as background
+		ctx.save();
+		ctx.translate(this.offsetX, this.offsetY);
+		ctx.scale(this.scale, this.scale);
+
+		// Draw only the current stroke being drawn
+		this.drawStroke(ctx, this.currentStroke);
 
 		ctx.restore();
+	}
+
+	render() {
+		// Legacy method - renders both layers
+		// Used for backward compatibility and initial render
+		this.renderBackground();
+		this.renderForeground();
 	}
 
 	drawStroke(ctx, stroke) {
@@ -1296,15 +1393,8 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		const baseNibWidth = stroke.size * 3;
 		ctx.fillStyle = stroke.color;
 
-		// Calculate total stroke length to detect dots
-		let totalLength = 0;
-		for (let i = 1; i < stroke.points.length; i++) {
-			const [x, y] = stroke.points[i];
-			const [prevX, prevY] = stroke.points[i - 1];
-			const dx = x - prevX;
-			const dy = y - prevY;
-			totalLength += Math.sqrt(dx * dx + dy * dy);
-		}
+		// Use cached total length if available, otherwise calculate (for old strokes)
+		const totalLength = stroke.totalLength ?? this.calculateStrokeLength(stroke);
 
 		// If stroke is very short (dot), use full width for all points
 		const isDot = totalLength < 10;
@@ -1806,6 +1896,55 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		if (this.wrapperResizeObserver) {
 			this.wrapperResizeObserver.disconnect();
 		}
+	}
+}
+
+// ==================== CONFIRM MODAL ====================
+
+class ConfirmModal extends Modal {
+	constructor(app, title, message, onConfirm) {
+		super(app);
+		this.title = title;
+		this.message = message;
+		this.onConfirm = onConfirm;
+	}
+
+	onOpen() {
+		const { contentEl } = this;
+		contentEl.empty();
+
+		contentEl.createEl('h2', { text: this.title });
+		contentEl.createEl('p', { text: this.message });
+
+		const buttonContainer = contentEl.createDiv({ cls: 'modal-button-container' });
+		buttonContainer.style.display = 'flex';
+		buttonContainer.style.gap = '8px';
+		buttonContainer.style.justifyContent = 'flex-end';
+		buttonContainer.style.marginTop = '16px';
+
+		const confirmBtn = buttonContainer.createEl('button', {
+			text: 'Clear',
+			cls: 'mod-warning'
+		});
+		confirmBtn.addEventListener('click', () => {
+			this.onConfirm();
+			this.close();
+		});
+
+		const cancelBtn = buttonContainer.createEl('button', {
+			text: 'Cancel'
+		});
+		cancelBtn.addEventListener('click', () => {
+			this.close();
+		});
+
+		// Focus the cancel button by default for safety
+		cancelBtn.focus();
+	}
+
+	onClose() {
+		const { contentEl } = this;
+		contentEl.empty();
 	}
 }
 
