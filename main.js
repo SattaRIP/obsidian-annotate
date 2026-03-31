@@ -42,6 +42,9 @@ class AnnotatePlugin extends Plugin {
 	async onload() {
 		console.log('Loading Annotate plugin');
 
+		// Initialize active widget tracker
+		this.activeWidget = null;
+
 		// Load settings
 		await this.loadSettings();
 
@@ -72,6 +75,40 @@ class AnnotatePlugin extends Plugin {
 			icon: 'scan',
 			callback: async () => {
 				await this.ocrCurrentFile();
+			}
+		});
+
+		// Register command: Undo canvas stroke
+		this.addCommand({
+			id: 'annotate-undo',
+			name: 'Annotate: Undo stroke',
+			hotkeys: [{ modifiers: ['Ctrl', 'Alt'], key: 'z' }],
+			checkCallback: (checking) => {
+				const activeWidget = this.getActiveAnnotateWidget();
+				if (activeWidget) {
+					if (!checking) {
+						activeWidget.undo();
+					}
+					return true;
+				}
+				return false;
+			}
+		});
+
+		// Register command: Redo canvas stroke
+		this.addCommand({
+			id: 'annotate-redo',
+			name: 'Annotate: Redo stroke',
+			hotkeys: [{ modifiers: ['Ctrl', 'Alt'], key: 'y' }],
+			checkCallback: (checking) => {
+				const activeWidget = this.getActiveAnnotateWidget();
+				if (activeWidget) {
+					if (!checking) {
+						activeWidget.redo();
+					}
+					return true;
+				}
+				return false;
 			}
 		});
 
@@ -326,6 +363,16 @@ class AnnotatePlugin extends Plugin {
 		await this.saveData(this.settings);
 	}
 
+	getActiveAnnotateWidget() {
+		// Returns the currently active/focused annotate widget, if any
+		return this.activeWidget;
+	}
+
+	setActiveAnnotateWidget(widget) {
+		// Sets the currently active widget
+		this.activeWidget = widget;
+	}
+
 	onunload() {
 		console.log('Unloading Annotate plugin');
 	}
@@ -348,8 +395,8 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		this.drawing = false;
 		this.currentStroke = null;
 		this.strokes = [];
-		this.history = [];
-		this.historyIndex = -1;
+		this.history = [[]]; // Start with empty state so undo can go back to blank canvas
+		this.historyIndex = 0;
 
 		// Transform state (pan/zoom)
 		this.offsetX = 0;
@@ -617,19 +664,19 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		// Separator
 		toolbar.createEl('span', { text: '|', cls: 'annotate-separator' });
 
-		// Undo/Redo
-		const undoBtn = toolbar.createEl('button', { text: 'Undo', cls: 'annotate-btn' });
-		undoBtn.addEventListener('click', () => this.undo());
-
-		const redoBtn = toolbar.createEl('button', { text: 'Redo', cls: 'annotate-btn' });
-		redoBtn.addEventListener('click', () => this.redo());
-
 		// Clear
 		const clearBtn = toolbar.createEl('button', { text: 'Clear', cls: 'annotate-btn' });
 		clearBtn.addEventListener('click', () => this.clearCanvas());
 
 		// Separator
 		toolbar.createEl('span', { text: '|', cls: 'annotate-separator' });
+
+		// Undo/Redo
+		const undoBtn = toolbar.createEl('button', { text: 'Undo', cls: 'annotate-btn' });
+		undoBtn.addEventListener('click', () => this.undo());
+
+		const redoBtn = toolbar.createEl('button', { text: 'Redo', cls: 'annotate-btn' });
+		redoBtn.addEventListener('click', () => this.redo());
 
 		// Ruled lines toggle
 		const linesBtn = toolbar.createEl('button', { text: 'Lines', cls: 'annotate-btn' });
@@ -800,6 +847,9 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 		let middleClickPanning = false;
 
 		this.canvas.addEventListener('pointerdown', (e) => {
+			// Set this widget as the active one when canvas is interacted with
+			this.plugin.setActiveAnnotateWidget(this);
+
 			const rect = this.canvas.getBoundingClientRect();
 			const screenX = e.clientX - rect.left;
 			const screenY = e.clientY - rect.top;
@@ -1040,29 +1090,54 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 
 	setupKeyboardShortcuts() {
 		this.keydownHandler = (e) => {
-			// Only handle shortcuts when canvas is focused or being used
-			const isCtrl = e.ctrlKey || e.metaKey;
+			// Only handle shortcuts when canvas itself has focus or is being interacted with
+			// Check if activeElement is the canvas or within the canvas container
+			const activeElement = document.activeElement;
+			const canvasHasFocus = this.canvas === activeElement ||
+			                       this.containerEl.contains(activeElement);
 
-			if (isCtrl && e.key === 'z') {
+			// Don't interfere if focus is on markdown editor or other elements
+			if (!canvasHasFocus || activeElement.closest('.cm-editor')) {
+				return;
+			}
+
+			const isCtrl = e.ctrlKey || e.metaKey;
+			const isAlt = e.altKey;
+
+			// Alt+Z for undo, Alt+Y for redo (to avoid conflicts with Obsidian)
+			if (isAlt && e.key === 'z') {
 				e.preventDefault();
+				e.stopPropagation();
 				this.undo();
-			} else if (isCtrl && e.key === 'y') {
+			} else if (isAlt && e.key === 'y') {
 				e.preventDefault();
+				e.stopPropagation();
 				this.redo();
 			} else if (isCtrl && e.key === 'c') {
 				e.preventDefault();
+				e.stopPropagation();
 				this.copyStrokes();
 			} else if (isCtrl && e.key === 'x') {
 				e.preventDefault();
+				e.stopPropagation();
 				this.cutStrokes();
 			} else if (isCtrl && e.key === 'v') {
 				e.preventDefault();
+				e.stopPropagation();
 				this.pasteStrokes();
 			}
 		};
 
-		// Add keyboard event listener to the canvas container
-		this.containerEl.addEventListener('keydown', this.keydownHandler);
+		// Make canvas focusable so it can receive keyboard events
+		this.canvas.setAttribute('tabindex', '0');
+
+		// Add keyboard event listener to document to catch all keyboard events
+		document.addEventListener('keydown', this.keydownHandler);
+
+		// Focus canvas when clicked
+		this.canvas.addEventListener('pointerdown', () => {
+			this.canvas.focus();
+		});
 	}
 
 	copyStrokes() {
@@ -1884,7 +1959,7 @@ class AnnotateEmbedWidget extends MarkdownRenderChild {
 	onunload() {
 		// Cleanup keyboard event listener
 		if (this.keydownHandler) {
-			this.containerEl.removeEventListener('keydown', this.keydownHandler);
+			document.removeEventListener('keydown', this.keydownHandler);
 		}
 
 		// Cleanup scroll event listener

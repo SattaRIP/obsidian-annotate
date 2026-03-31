@@ -1,7 +1,7 @@
 {
-	"id": "annotate",
-	"name": "Annotate",
-	"version": "1.0.6",
+	"id": "khattat",
+	"name": "Khattat",
+	"version": "1.0.7",
 	"minAppVersion": "0.15.0",
 	"description": "Handwrite in your notes with realistic pens and dual OCR providers (MyScript & Google Cloud Vision) for accurate handwriting recognition.",
 	"author": "Mythra PS",
